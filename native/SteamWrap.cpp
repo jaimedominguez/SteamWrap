@@ -456,20 +456,8 @@ bool CallbackHandler::UploadScore(const std::string& leaderboardId, int score, i
 {
    	if (m_leaderboards.find(leaderboardId) == m_leaderboards.end() || m_leaderboards[leaderboardId] == 0)
    		return false;
-		
-	
-	//NOTE: detailLength has to be coordinated with the HX code, and allow a max of detailLength items for the detail array.	
-	//detailLength = ;
-	
-		
-	/*int k_cLeaderboardDetailsMax = 64;
-	if (detailLength>k_cLeaderboardDetailsMax)
-		detailLength = k_cLeaderboardDetailsMax;*/
-		
-	//int detailTest [5] =  { 1, 2, 3, 4, 5 };	
-	//SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, detailTest, detailLength);
-	
-SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, detail, k_steamDetailsLength);
+
+	SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, detail, k_steamDetailsLength);
 
 	m_callResultUploadScore.Set(hSteamAPICall, this, &CallbackHandler::OnScoreUploaded);
  	return true;
@@ -561,11 +549,9 @@ void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback
 	std::string leaderboardId = SteamUserStats()->GetLeaderboardName(pCallback->m_hSteamLeaderboard);
 	int numEntries = pCallback->m_cEntryCount;
 	std::ostringstream data;
-
 	
 	for (int i=0; i<numEntries; i++)
 	{
-		
 		int score = 0;
 		int32 details[k_steamDetailsLength];
 		LeaderboardEntry_t entry;
@@ -575,12 +561,9 @@ void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback
 		std::string playerName= SteamFriends()->GetFriendPersonaName(entry.m_steamIDUser);
 		//composing int array details to string
 		for (int i=0;i<entry.m_cDetails;i++){
-			arrayDetails += std::to_string(*(details+i));//son Ints que tienen que convertToStr
-			arrayDetails += k_leadeboardsDetailsSeparator;//[:] shows only first element. It should show the whole array?
+			arrayDetails += std::to_string(*(details+i));
+			arrayDetails += k_leadeboardsDetailsSeparator;//[:]
 		}
-
-	
-		
 		data << toLeaderboardScore(leaderboardId.c_str(), playerName,entry.m_nScore, arrayDetails, entry.m_nGlobalRank).c_str();
 		data << k_leadeboardsEntrySeparator; //[;]
 	
@@ -592,7 +575,7 @@ void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback
 	}
 	else
 	{
-		SendEvent(Event(kEventTypeOnScoreDownloaded, true, toLeaderboardScore(leaderboardId.c_str(),"error", -1,"no scores", -1)));
+		SendEvent(Event(kEventTypeOnScoreDownloaded, true, toLeaderboardScore(leaderboardId.c_str(),"error", -1,"no entries", -1)));
 
 	}
 }
@@ -1390,7 +1373,7 @@ DEFINE_PRIM(SteamWrap_FindLeaderboard, 1);
 value SteamWrap_UploadScore(value name, value score, value detail, value detailLength)
 {
 
-	//not validating the detail [] array.
+	//not validating:  value detail (array of ints)
 	if (!val_is_string(name) || !val_is_int(score) || !val_is_int(detailLength)  || !CheckInit())
 		return alloc_bool(false);
 		

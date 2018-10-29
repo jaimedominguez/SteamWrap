@@ -144,7 +144,7 @@ class Steam
 			SteamWrap_RequestGlobalStats = cpp.Lib.load("steamwrap", "SteamWrap_RequestGlobalStats", 0);
 			SteamWrap_RestartAppIfNecessary = cpp.Lib.load("steamwrap", "SteamWrap_RestartAppIfNecessary", 1);
 			SteamWrap_OpenOverlay = cpp.Lib.load("steamwrap", "SteamWrap_OpenOverlay", 1);
-			//SteamWrap_Get = cpp.Lib.load("steamwrap", "SteamWrap_OpenOverlay", 1);
+		
 		}
 		catch (e:Dynamic) {
 			customTrace("Running non-Steam version (" + e + ")");
@@ -203,9 +203,7 @@ class Steam
 	public static function downloadLeaderboardScore(id:String, a:Int=5,b:Int=15, listMode:Int):Bool {
 		if (!active) return false;
 		var startProcessingNow = (leaderboardOps.length == 0);
-		//trace("downloadLeaderboardScore(" + id + ")["+startProcessingNow+"]");
 		findLeaderboardIfNecessary(id);
-		trace("[FIND&DOWNLOAD] leaderboard(" + id + ")");
 		leaderboardOps.add(LeaderboardOp.DOWNLOAD(id,a,b,listMode));
 		if (startProcessingNow) processNextLeaderboardOp();
 		return true;
@@ -214,7 +212,6 @@ class Steam
 	private static function findLeaderboardIfNecessary(id:String) {
 		if (!Lambda.has(leaderboardIds, id) && !Lambda.exists(leaderboardOps, function(op) { return Type.enumEq(op, FIND(id)); }))
 		{	
-			//trace("[0-FIND] LEADERBOARD(" + id + ")");
 			leaderboardOps.add(LeaderboardOp.FIND(id));
 		}
 	}
@@ -459,25 +456,25 @@ class Steam
 	private static var leaderboardOps:List<LeaderboardOp>;
 	
 	private static inline function customTrace(str:String) {
-		#if debug
+		/*#if debug
 			trace("[STEAM]" + str);
-		#end
-		/*
+		#end*/
+		
+		
 		if (whenTrace != null)
 			whenTrace(str);
 		else
-			trace(str);*/
+			trace(str);
 	}
 	
 	private static function processNextLeaderboardOp() {
 	
 		var op :LeaderboardOp = leaderboardOps.pop();
-		//trace("processNextLeaderboardOp("+op+")");
 		if (op == null) return;
 		
 		switch (op) {
 			case FIND(id):
-				//trace("A");
+				//trace("Find leaderboard:"+id);
 				if (!SteamWrap_FindLeaderboard(id))
 					processNextLeaderboardOp();
 				
@@ -500,9 +497,7 @@ class Steam
 	}
 
 	public static function steamWrap_onEvent(e:Dynamic) {
-		
-		
-		
+
 		var type:String = Std.string(Reflect.field(e, "type"));
 		var success:Bool = (Std.int(Reflect.field(e, "success")) != 0);
 		var data:String = Std.string(Reflect.field(e, "data"));
@@ -541,15 +536,12 @@ class Steam
 				processNextLeaderboardOp();
 			case "ScoreDownloaded":
 				if (success) {
-					trace("SCORES DOWNLOADED:" + data);
-
 					var scores:Array<String> = data.split(Steam.k_leadeboardsEntrySeparator);
 					var entries:Array<LeaderboardScore> = new Array<LeaderboardScore>();
 					
 					for (scoreString in scores) {
 						if (scoreString != null) {
 							var scoreEntry:LeaderboardScore = LeaderboardScore.fromString(scoreString);
-							
 							if (scoreEntry.score!=0) entries.push(scoreEntry);
 						}
 					}
@@ -561,11 +553,8 @@ class Steam
 				processNextLeaderboardOp();
 			case "ScoreUploaded":
 				if (success) {
-					
-					trace("UPLOADED SCORE RAW:" + data);
-					
 					var score:LeaderboardScore = LeaderboardScore.fromString(data);
-					trace("UPLOADED SCORE:" + score.score + "to: "+score.leaderboardId);
+					//trace("UPLOADED SCORE:" + score.score + "to: "+score.leaderboardId);
 					if (score != null && whenLeaderboardScoreUploaded != null) whenLeaderboardScoreUploaded(score);
 				}
 				processNextLeaderboardOp();
@@ -681,8 +670,6 @@ class LeaderboardScore {
 		detail = _detail;
 		detailLength = detail.length;
 		rank = _rank;
-		trace("new LEADERBOARD-SCORE.... playerName:"+playerName+",score:"+score+",detail:"+detail+",rank:"+rank);
-		
 	}
 
 	public function toString():String {
@@ -705,8 +692,6 @@ class LeaderboardScore {
 			detailsArrayInt.push(Std.parseInt(detailsArrayString[i]));
 		}
 
-		
-		
 		return new LeaderboardScore(leaderboardID,score,detailsArrayInt,userNameID ,rank);
 		
 	}
