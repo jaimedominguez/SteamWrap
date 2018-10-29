@@ -14,6 +14,7 @@
 
 #include <steam/steam_api.h>
 
+
 //Thanks to Sven Bergström for these two helper functions:
 inline value bytes_to_hx( const unsigned char* bytes, int byteLength )
 {
@@ -122,6 +123,18 @@ static const char* kEventTypeOnGetPublishedFileDetails = "PublishedFileDetailsGo
 static const char* kEventTypeOnDownloadItem = "ItemDownloaded";
 static const char* kEventTypeOnItemInstalled = "ItemInstalled";
 static const char* kEventTypeOnUGCQueryCompleted = "UGCQueryCompleted";
+
+
+//#include <steam_api_setupvars.h>
+
+static const int k_steamDetailsLength=24; 
+static const char *k_leadeboardsDataSeparator = ",";
+static const char *k_leadeboardsDetailsSeparator = ":";
+static const char *k_leadeboardsEntrySeparator = ";";
+
+static const int k_leadeboardsEntryMode_Global = 0;
+static const int k_leadeboardsEntryMode_onlyNearPlayer = 1;
+static const int k_leadeboardsEntryMode_onlyFriends = 2;
 
 //A simple data structure that holds on to the native 64-bit handles and maps them to regular ints.
 //This is because it is cumbersome to pass back 64-bit values over CFFI, and strictly speaking, the haxe 
@@ -256,11 +269,11 @@ public:
 	void OnLeaderboardFound( LeaderboardFindResult_t *pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, LeaderboardFindResult_t> m_callResultFindLeaderboard;
 
-	bool UploadScore(const std::string& leaderboardId, int score, int detail);
+	bool UploadScore(const std::string& leaderboardId, int score, int* detail, int detailLength);
 	void OnScoreUploaded( LeaderboardScoreUploaded_t *pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, LeaderboardScoreUploaded_t> m_callResultUploadScore;
 
-	bool DownloadScores(const std::string& leaderboardId, int numBefore, int numAfter);
+	bool DownloadScores(const std::string& leaderboardId, int numBefore, int numAfter, int listMode);
 	void OnScoreDownloaded( LeaderboardScoresDownloaded_t *pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, LeaderboardScoresDownloaded_t> m_callResultDownloadScore;
 
@@ -439,12 +452,25 @@ void CallbackHandler::OnLeaderboardFound(LeaderboardFindResult_t *pCallback, boo
 	}
 }
 
-bool CallbackHandler::UploadScore(const std::string& leaderboardId, int score, int detail)
+bool CallbackHandler::UploadScore(const std::string& leaderboardId, int score, int *detail, int detailLength)
 {
    	if (m_leaderboards.find(leaderboardId) == m_leaderboards.end() || m_leaderboards[leaderboardId] == 0)
    		return false;
+		
+	
+	//NOTE: detailLength has to be coordinated with the HX code, and allow a max of detailLength items for the detail array.	
+	//detailLength = ;
+	
+		
+	/*int k_cLeaderboardDetailsMax = 64;
+	if (detailLength>k_cLeaderboardDetailsMax)
+		detailLength = k_cLeaderboardDetailsMax;*/
+		
+	//int detailTest [5] =  { 1, 2, 3, 4, 5 };	
+	//SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, detailTest, detailLength);
+	
+SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, detail, k_steamDetailsLength);
 
-	SteamAPICall_t hSteamAPICall = SteamUserStats()->UploadLeaderboardScore(m_leaderboards[leaderboardId], k_ELeaderboardUploadScoreMethodKeepBest, score, &detail, 1);
 	m_callResultUploadScore.Set(hSteamAPICall, this, &CallbackHandler::OnScoreUploaded);
  	return true;
 }
@@ -455,10 +481,11 @@ void CallbackHandler::FileShare(const char * fileName)
 	m_callResultFileShare.Set(hSteamAPICall, this, &CallbackHandler::OnFileShared);
 }
 
-static std::string toLeaderboardScore(const char* leaderboardName, int score, int detail, int rank)
+static std::string toLeaderboardScore(const char* leaderboardName, std::string playerName, int score, std::string detail, int rank)
 {
 	std::ostringstream data;
-	data << leaderboardName << "," << score << "," << detail << "," << rank;
+
+	data << leaderboardName << k_leadeboardsDataSeparator<< playerName << k_leadeboardsDataSeparator << rank << k_leadeboardsDataSeparator << score << k_leadeboardsDataSeparator << detail;
 	return data.str();
 }
 
@@ -467,7 +494,7 @@ void CallbackHandler::OnScoreUploaded(LeaderboardScoreUploaded_t *pCallback, boo
 	if (pCallback->m_bSuccess && !bIOFailure)
 	{
 		std::string leaderboardName = SteamUserStats()->GetLeaderboardName(pCallback->m_hSteamLeaderboard);
-		std::string data = toLeaderboardScore(SteamUserStats()->GetLeaderboardName(pCallback->m_hSteamLeaderboard), pCallback->m_nScore, -1, pCallback->m_nGlobalRankNew);
+		std::string data = toLeaderboardScore(SteamUserStats()->GetLeaderboardName(pCallback->m_hSteamLeaderboard), " ",pCallback->m_nScore, "data uploaded", pCallback->m_nGlobalRankNew);
 		SendEvent(Event(kEventTypeOnScoreUploaded, true, data));
 	}
 	else if (pCallback != NULL && pCallback->m_hSteamLeaderboard != 0)
@@ -498,13 +525,26 @@ void CallbackHandler::OnFileShared(RemoteStorageFileShareResult_t *pCallback, bo
 	}
 }
 
-bool CallbackHandler::DownloadScores(const std::string& leaderboardId, int numBefore, int numAfter)
+bool CallbackHandler::DownloadScores(const std::string& leaderboardId, int numBefore, int numAfter,int listMode)
 {
    	if (m_leaderboards.find(leaderboardId) == m_leaderboards.end() || m_leaderboards[leaderboardId] == 0)
    		return false;
 
- 	// load the specified leaderboard data around the current user
- 	SteamAPICall_t hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(m_leaderboards[leaderboardId], k_ELeaderboardDataRequestGlobalAroundUser, -numBefore, numAfter);
+	SteamAPICall_t hSteamAPICall;
+	
+	switch(listMode){
+		case k_leadeboardsEntryMode_onlyNearPlayer:
+			hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(m_leaderboards[leaderboardId], k_ELeaderboardDataRequestGlobalAroundUser, -numBefore, numAfter);
+		break;
+		case k_leadeboardsEntryMode_onlyFriends:
+			hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(m_leaderboards[leaderboardId], k_ELeaderboardDataRequestFriends, numBefore, numAfter);
+		break;
+		case k_leadeboardsEntryMode_Global:
+		default:
+			hSteamAPICall = SteamUserStats()->DownloadLeaderboardEntries(m_leaderboards[leaderboardId], k_ELeaderboardDataRequestGlobal, numBefore, numAfter);
+		
+	};
+
 	m_callResultDownloadScore.Set(hSteamAPICall, this, &CallbackHandler::OnScoreDownloaded);
 
  	return true;
@@ -519,34 +559,41 @@ void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback
 	}
 
 	std::string leaderboardId = SteamUserStats()->GetLeaderboardName(pCallback->m_hSteamLeaderboard);
-
 	int numEntries = pCallback->m_cEntryCount;
-	if (numEntries > 10) numEntries = 10;
-
 	std::ostringstream data;
-	bool haveData = false;
 
+	
 	for (int i=0; i<numEntries; i++)
 	{
+		
 		int score = 0;
-		int details[1];
+		int32 details[k_steamDetailsLength];
 		LeaderboardEntry_t entry;
-		SteamUserStats()->GetDownloadedLeaderboardEntry(pCallback->m_hSteamLeaderboardEntries, i, &entry, details, 1);
-		if (entry.m_cDetails != 1) continue;
+		
+		std::string arrayDetails="";
+		SteamUserStats()->GetDownloadedLeaderboardEntry(pCallback->m_hSteamLeaderboardEntries, i, &entry, details, k_steamDetailsLength);
+		std::string playerName= SteamFriends()->GetFriendPersonaName(entry.m_steamIDUser);
+		//composing int array details to string
+		for (int i=0;i<entry.m_cDetails;i++){
+			arrayDetails += std::to_string(*(details+i));//son Ints que tienen que convertToStr
+			arrayDetails += k_leadeboardsDetailsSeparator;//[:] shows only first element. It should show the whole array?
+		}
 
-		if (haveData) data << ";";
-		data << toLeaderboardScore(leaderboardId.c_str(), entry.m_nScore, details[0], entry.m_nGlobalRank).c_str();
-		haveData = true;
+	
+		
+		data << toLeaderboardScore(leaderboardId.c_str(), playerName,entry.m_nScore, arrayDetails, entry.m_nGlobalRank).c_str();
+		data << k_leadeboardsEntrySeparator; //[;]
+	
 	}
 
-	if (haveData)
+	if (numEntries>0)
 	{
 		SendEvent(Event(kEventTypeOnScoreDownloaded, true, data.str()));
 	}
 	else
 	{
-		// ok but no scores
-		SendEvent(Event(kEventTypeOnScoreDownloaded, true, toLeaderboardScore(leaderboardId.c_str(), -1, -1, -1)));
+		SendEvent(Event(kEventTypeOnScoreDownloaded, true, toLeaderboardScore(leaderboardId.c_str(),"error", -1,"no scores", -1)));
+
 	}
 }
 
@@ -1340,26 +1387,29 @@ value SteamWrap_FindLeaderboard(value name)
 DEFINE_PRIM(SteamWrap_FindLeaderboard, 1);
 
 //-----------------------------------------------------------------------------------------------------------
-value SteamWrap_UploadScore(value name, value score, value detail)
+value SteamWrap_UploadScore(value name, value score, value detail, value detailLength)
 {
-	if (!val_is_string(name) || !val_is_int(score) || !val_is_int(detail) || !CheckInit())
-		return alloc_bool(false);
 
-	bool result = s_callbackHandler->UploadScore(val_string(name), val_int(score), val_int(detail));
+	//not validating the detail [] array.
+	if (!val_is_string(name) || !val_is_int(score) || !val_is_int(detailLength)  || !CheckInit())
+		return alloc_bool(false);
+		
+	bool result = s_callbackHandler->UploadScore(val_string(name), val_int(score), val_array_int(detail),val_int(detailLength));
+
 	return alloc_bool(result);
 }
-DEFINE_PRIM(SteamWrap_UploadScore, 3);
+DEFINE_PRIM(SteamWrap_UploadScore, 4);
 
 //-----------------------------------------------------------------------------------------------------------
-value SteamWrap_DownloadScores(value name, value numBefore, value numAfter)
+value SteamWrap_DownloadScores(value name, value numBefore, value numAfter, value listMode)
 {
-	if (!val_is_string(name) || !val_is_int(numBefore) || !val_is_int(numAfter) || !CheckInit())
+	if (!val_is_string(name) || !val_is_int(numBefore) || !val_is_int(numAfter) || !val_is_int(listMode) || !CheckInit())
 		return alloc_bool(false);
 
-	bool result = s_callbackHandler->DownloadScores(val_string(name), val_int(numBefore), val_int(numAfter));
+	bool result = s_callbackHandler->DownloadScores(val_string(name), val_int(numBefore), val_int(numAfter), val_int(listMode));
 	return alloc_bool(result);
 }
-DEFINE_PRIM(SteamWrap_DownloadScores, 3);
+DEFINE_PRIM(SteamWrap_DownloadScores, 4);
 
 //-----------------------------------------------------------------------------------------------------------
 value SteamWrap_RequestGlobalStats()

@@ -2,6 +2,7 @@ package steamwrap.api;
 
 import cpp.Lib;
 import haxe.Int64;
+
 import steamwrap.api.Steam.EnumerateWorkshopFilesResult;
 import steamwrap.api.Steam.DownloadUGCResult;
 import steamwrap.api.Steam.GetItemInstallInfoResult;
@@ -15,7 +16,7 @@ private enum LeaderboardOp
 {
 	FIND(id:String);
 	UPLOAD(score:LeaderboardScore);
-	DOWNLOAD(id:String);
+	DOWNLOAD(id:String,a:Int,b:Int,mode:Int);
 }
 
 @:enum
@@ -70,7 +71,7 @@ class Steam
 
 	public static var whenGamepadTextInputDismissed:String->Void;
 	public static var whenAchievementStored:String->Void;
-	public static var whenLeaderboardScoreDownloaded:LeaderboardScore->Void;
+	public static var whenLeaderboardScoreDownloaded:Array<LeaderboardScore>->Void;
 	public static var whenLeaderboardScoreUploaded:LeaderboardScore->Void;
 	public static var whenTrace:String->Void;
 	public static var whenUGCItemIdReceived:String->Void;
@@ -88,21 +89,31 @@ class Steam
 	public static var whenItemDownloaded:Bool->String->Void;
 	public static var whenQueryUGCRequestSent:SteamUGCQueryCompleted->Void;
 	
+	//these chars has to match the same as SteamWrap.cpp (kept the c++ naming convention to make it easier to update)
+	public static var k_steamDetailsLength=24; 
+	public static var k_leadeboardsDataSeparator = ",";
+	public static var k_leadeboardsDetailsSeparator = ":";
+	public static var k_leadeboardsEntrySeparator = ";";
+	public static var k_leadeboardsEntryMode_Global:Int = 0;
+	public static var k_leadeboardsEntryMode_onlyNearPlayer:Int = 1;
+	public static var k_leadeboardsEntryMode_onlyFriends:Int = 2;
+	
+	
 	/**
 	 * @param appId_	Your Steam APP ID (the numbers on the end of your store page URL - store.steampowered.com/app/XYZ)
 	 * @param notificationPosition	The position of the Steam Overlay Notification box.
 	 */
 	public static function init(appId_:Int, notificationPosition:SteamNotificationPosition = SteamNotificationPosition.BottomRight) {
-		#if sys //TODO: figure out what targets this will & won't work with and upate this guard
+		//#if sys //TODO: figure out what targets this will & won't work with and upate this guard
 		if (active) return;
 		
 		appId = appId_;
 		leaderboardIds = new Array<String>();
 		leaderboardOps = new List<LeaderboardOp>();
-		
+				
 		try {
 			SteamWrap_ClearAchievement = cpp.Lib.load("steamwrap", "SteamWrap_ClearAchievement", 1);
-			SteamWrap_DownloadScores = cpp.Lib.load("steamwrap", "SteamWrap_DownloadScores", 3);
+			SteamWrap_DownloadScores = cpp.Lib.load("steamwrap", "SteamWrap_DownloadScores", 4);
 			SteamWrap_FindLeaderboard = cpp.Lib.load("steamwrap", "SteamWrap_FindLeaderboard", 1);
 			SteamWrap_GetCurrentGameLanguage = cpp.Lib.load("steamwrap", "SteamWrap_GetCurrentGameLanguage", 0);
 			SteamWrap_GetGlobalStat = cpp.Lib.load("steamwrap", "SteamWrap_GetGlobalStat", 1);
@@ -129,15 +140,19 @@ class Steam
 			SteamWrap_SetStatInt = cpp.Lib.load("steamwrap", "SteamWrap_SetStatInt", 2);
 			SteamWrap_Shutdown = cpp.Lib.load("steamwrap", "SteamWrap_Shutdown", 0);
 			SteamWrap_StoreStats = cpp.Lib.load("steamwrap", "SteamWrap_StoreStats", 0);
-			SteamWrap_UploadScore = cpp.Lib.load("steamwrap", "SteamWrap_UploadScore", 3);
+			SteamWrap_UploadScore = cpp.Lib.load("steamwrap", "SteamWrap_UploadScore", 4);
 			SteamWrap_RequestGlobalStats = cpp.Lib.load("steamwrap", "SteamWrap_RequestGlobalStats", 0);
 			SteamWrap_RestartAppIfNecessary = cpp.Lib.load("steamwrap", "SteamWrap_RestartAppIfNecessary", 1);
 			SteamWrap_OpenOverlay = cpp.Lib.load("steamwrap", "SteamWrap_OpenOverlay", 1);
+			//SteamWrap_Get = cpp.Lib.load("steamwrap", "SteamWrap_OpenOverlay", 1);
 		}
 		catch (e:Dynamic) {
 			customTrace("Running non-Steam version (" + e + ")");
 			return;
 		}
+		
+		
+		
 		
 		// if we get this far, the dlls loaded ok and we need Steam to init.
 		// otherwise, we're trying to run the Steam version without the Steam client
@@ -160,7 +175,7 @@ class Steam
 			wantQuit = true;
 		}
 		
-		#end
+		//#end
 	}
 	
 	/*************PUBLIC***************/
@@ -174,18 +189,32 @@ class Steam
 		return active && report("clearAchievement", [id], SteamWrap_ClearAchievement(id));
 	}
 	
-	public static function downloadLeaderboardScore(id:String):Bool {
+	
+	//listMode: 0 (All data).
+	//A:Initial position.
+	//B:Last position.
+	
+	//listMode: 1 (Near data)
+	//A:Positions to show before player.
+	//B:Positions to show after player.
+	
+	//listMode: 2 (Friends)
+	//A or B Not used: It returns ALL friends scores.
+	public static function downloadLeaderboardScore(id:String, a:Int=5,b:Int=15, listMode:Int):Bool {
 		if (!active) return false;
 		var startProcessingNow = (leaderboardOps.length == 0);
+		//trace("downloadLeaderboardScore(" + id + ")["+startProcessingNow+"]");
 		findLeaderboardIfNecessary(id);
-		leaderboardOps.add(LeaderboardOp.DOWNLOAD(id));
+		trace("[FIND&DOWNLOAD] leaderboard(" + id + ")");
+		leaderboardOps.add(LeaderboardOp.DOWNLOAD(id,a,b,listMode));
 		if (startProcessingNow) processNextLeaderboardOp();
 		return true;
 	}
 	
 	private static function findLeaderboardIfNecessary(id:String) {
 		if (!Lambda.has(leaderboardIds, id) && !Lambda.exists(leaderboardOps, function(op) { return Type.enumEq(op, FIND(id)); }))
-		{
+		{	
+			//trace("[0-FIND] LEADERBOARD(" + id + ")");
 			leaderboardOps.add(LeaderboardOp.FIND(id));
 		}
 	}
@@ -430,41 +459,56 @@ class Steam
 	private static var leaderboardOps:List<LeaderboardOp>;
 	
 	private static inline function customTrace(str:String) {
+		#if debug
+			trace("[STEAM]" + str);
+		#end
+		/*
 		if (whenTrace != null)
 			whenTrace(str);
 		else
-			trace(str);
+			trace(str);*/
 	}
 	
 	private static function processNextLeaderboardOp() {
-		var op = leaderboardOps.pop();
+	
+		var op :LeaderboardOp = leaderboardOps.pop();
+		//trace("processNextLeaderboardOp("+op+")");
 		if (op == null) return;
 		
 		switch (op) {
 			case FIND(id):
-				if (!report("Leaderboard.FIND", [id], SteamWrap_FindLeaderboard(id)))
+				//trace("A");
+				if (!SteamWrap_FindLeaderboard(id))
 					processNextLeaderboardOp();
+				
 			case UPLOAD(score):
-				if (!report("Leaderboard.UPLOAD", [score.toString()], SteamWrap_UploadScore(score.leaderboardId, score.score, score.detail)))
+				//trace("Uploading score:"+score.leaderboardId+","+score.score + ","+score.detail);
+				if (!SteamWrap_UploadScore(score.leaderboardId, score.score, score.detail, score.detailLength))
 					processNextLeaderboardOp();
-			case DOWNLOAD(id):
-				if (!report("Leaderboard.DOWNLOAD", [id], SteamWrap_DownloadScores(id, 0, 0)))
-					processNextLeaderboardOp();
+				
+			case DOWNLOAD(id,a,b,mode):
+				//trace("SteamWrap_DownloadScores("+id+","+a+","+b+", "+mode+")");
+				if (!SteamWrap_DownloadScores(id, a, b, mode))
+				processNextLeaderboardOp();
 		}
 	}
 	
 	private static inline function report(func:String, params:Array<String>, result:Bool):Bool {
-		var str = "[STEAM] " + func + "(" + params.join(",") + ") " + (result ? " SUCCEEDED" : " FAILED");
+		var str:String = func + "(" + params.join(",") + ") " + (result ? " SUCCEEDED" : " FAILED");
 		customTrace(str);
 		return result;
 	}
 
-	private static function steamWrap_onEvent(e:Dynamic) {
+	public static function steamWrap_onEvent(e:Dynamic) {
+		
+		
+		
 		var type:String = Std.string(Reflect.field(e, "type"));
 		var success:Bool = (Std.int(Reflect.field(e, "success")) != 0);
 		var data:String = Std.string(Reflect.field(e, "data"));
 		
-		customTrace("[STEAM] " + type + (success ? " SUCCESS" : " FAIL") + " (" + data + ")");
+		customTrace(" " + type + (success ? " SUCCESS" : " FAIL") + " (" + data + "):"+data);
+		
 		
 		switch (type) {
 			case "UserStatsReceived":
@@ -497,16 +541,31 @@ class Steam
 				processNextLeaderboardOp();
 			case "ScoreDownloaded":
 				if (success) {
-					var scores = data.split(";");
-					for (score in scores) {
-						var score = LeaderboardScore.fromString(data);
-						if (score != null && whenLeaderboardScoreDownloaded != null) whenLeaderboardScoreDownloaded(score);
+					trace("SCORES DOWNLOADED:" + data);
+
+					var scores:Array<String> = data.split(Steam.k_leadeboardsEntrySeparator);
+					var entries:Array<LeaderboardScore> = new Array<LeaderboardScore>();
+					
+					for (scoreString in scores) {
+						if (scoreString != null) {
+							var scoreEntry:LeaderboardScore = LeaderboardScore.fromString(scoreString);
+							
+							if (scoreEntry.score!=0) entries.push(scoreEntry);
+						}
+					}
+					
+					if (entries.length > 0) {
+						 whenLeaderboardScoreDownloaded(entries);
 					}
 				}
 				processNextLeaderboardOp();
 			case "ScoreUploaded":
 				if (success) {
-					var score = LeaderboardScore.fromString(data);
+					
+					trace("UPLOADED SCORE RAW:" + data);
+					
+					var score:LeaderboardScore = LeaderboardScore.fromString(data);
+					trace("UPLOADED SCORE:" + score.score + "to: "+score.leaderboardId);
 					if (score != null && whenLeaderboardScoreUploaded != null) whenLeaderboardScoreUploaded(score);
 				}
 				processNextLeaderboardOp();
@@ -592,8 +651,8 @@ class Steam
 	private static var SteamWrap_IndicateAchievementProgress:Dynamic;
 	private static var SteamWrap_StoreStats:Dynamic;
 	private static var SteamWrap_FindLeaderboard:Dynamic;
-	private static var SteamWrap_UploadScore:String->Int->Int->Bool;
-	private static var SteamWrap_DownloadScores:String->Int->Int->Bool;
+	private static var SteamWrap_UploadScore:String->Int->Array<Int>->Int->Bool;
+	private static var SteamWrap_DownloadScores:String->Int->Int->Int->Bool;
 	private static var SteamWrap_RequestGlobalStats:Dynamic;
 	private static var SteamWrap_GetGlobalStat:Dynamic;
 	private static var SteamWrap_RestartAppIfNecessary:Dynamic;
@@ -607,27 +666,49 @@ class Steam
 
 class LeaderboardScore {
 	public var leaderboardId:String;
+	public var playerName:String;
 	public var score:Int;
-	public var detail:Int;
+	public var detail:Array<Int>;
+	public var detailLength:Int;
 	public var rank:Int;
+	static private var DETAIL_ARRAY_SPLITTER:String = Steam.k_leadeboardsDetailsSeparator;
+	static private var ARRAY_SPLITTER:String = Steam.k_leadeboardsDataSeparator;
 
-	public function new(leaderboardId_:String, score_:Int, detail_:Int, rank_:Int=-1) {
-		leaderboardId = leaderboardId_;
-		score = score_;
-		detail = detail_;
-		rank = rank_;
+	public function new(_leaderboardId:String, _score:Int, _detail:Array<Int>,_playerName:String="Not Assigned", _rank:Int=-1) {
+		leaderboardId = _leaderboardId;
+		playerName = _playerName;
+		score = _score;
+		detail = _detail;
+		detailLength = detail.length;
+		rank = _rank;
+		trace("new LEADERBOARD-SCORE.... playerName:"+playerName+",score:"+score+",detail:"+detail+",rank:"+rank);
+		
 	}
 
 	public function toString():String {
-		return leaderboardId  + "," + score + "," + detail + "," + rank;
+		return leaderboardId + ARRAY_SPLITTER + score + ARRAY_SPLITTER + detail.join(DETAIL_ARRAY_SPLITTER) + ARRAY_SPLITTER + rank;
+		
 	}
 
 	public static function fromString(str:String):LeaderboardScore {
-		var tokens = str.split(",");
-		if (tokens.length == 4)
-			return new LeaderboardScore(tokens[0], Util.str2Int(tokens[1]), Util.str2Int(tokens[2]), Util.str2Int(tokens[3]));
-		else
-			return null;
+		var tokens = str.split(ARRAY_SPLITTER);
+		
+		
+		var leaderboardID:String = tokens[0];
+		var userNameID:String = tokens[1];
+		var rank:Int = Std.parseInt(tokens[2]);
+		var score:Int = Std.parseInt(tokens[3]);
+		
+		var detailsArrayString:Array<String> = tokens[4].split(DETAIL_ARRAY_SPLITTER);
+		var detailsArrayInt:Array<Int> = new Array<Int>();
+		for (i in 0...detailsArrayString.length) {
+			detailsArrayInt.push(Std.parseInt(detailsArrayString[i]));
+		}
+
+		
+		
+		return new LeaderboardScore(leaderboardID,score,detailsArrayInt,userNameID ,rank);
+		
 	}
 }
 

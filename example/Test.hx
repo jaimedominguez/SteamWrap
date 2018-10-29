@@ -95,6 +95,7 @@ class Test
 			}
 		}
 		
+		//important to keep calling Steam.onEnterFrame() every frame.
 		while (true)
 		{
 			Steam.onEnterFrame();
@@ -120,8 +121,8 @@ class Test
 		trace("Achievement stored: " + id);
 	}
 
-	private static function steamWrap_onLeaderboardScoreDownloaded(score:steamwrap.api.Steam.LeaderboardScore)
+	private static function steamWrap_onLeaderboardScoreDownloaded(score:Array<LeaderboardScore>)
 	{
-		trace("Leaderboard score downloaded: " + score.toString());
+		trace("Leaderboard score downloaded. ");
 	}
 }
