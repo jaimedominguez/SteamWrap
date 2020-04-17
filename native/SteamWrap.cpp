@@ -100,7 +100,7 @@ void deleteSteamParamStringArray(SteamParamStringArray_t * params)
 AutoGCRoot *g_eventHandler = 0;
 
 //-----------------------------------------------------------------------------------------------------------
-// Event
+// Events 
 //-----------------------------------------------------------------------------------------------------------
 static const char* kEventTypeNone = "None";
 static const char* kEventTypeOnGamepadTextInputDismissed = "GamepadTextInputDismissed";
@@ -111,6 +111,8 @@ static const char* kEventTypeOnLeaderboardFound = "LeaderboardFound";
 static const char* kEventTypeOnScoreUploaded = "ScoreUploaded";
 static const char* kEventTypeOnScoreDownloaded = "ScoreDownloaded";
 static const char* kEventTypeOnGlobalStatsReceived = "GlobalStatsReceived";
+static const char* kEventTypeOnAuthSessionTicketResponse = "AuthSessionTicketResponse";
+static const char* kEventTypeOnAuthValidationTicketResponse = "OnAuthValidationTicketResponse";
 static const char* kEventTypeUGCLegalAgreement = "UGCLegalAgreementStatus";
 static const char* kEventTypeUGCItemCreated = "UGCItemCreated";
 static const char* kEventTypeOnItemUpdateSubmitted = "UGCItemUpdateSubmitted";
@@ -123,7 +125,8 @@ static const char* kEventTypeOnGetPublishedFileDetails = "PublishedFileDetailsGo
 static const char* kEventTypeOnDownloadItem = "ItemDownloaded";
 static const char* kEventTypeOnItemInstalled = "ItemInstalled";
 static const char* kEventTypeOnUGCQueryCompleted = "UGCQueryCompleted";
-
+static const char* kEventTypeLicensenUGCQueryCompleted = "UGCQueryCompleted";
+static const char* kEventTypeOnBeginAuthSession = "OnBeginAuthSession";
 
 //#include <steam_api_setupvars.h>
 
@@ -135,6 +138,21 @@ static const char *k_leadeboardsEntrySeparator = ";";
 static const int k_leadeboardsEntryMode_Global = 0;
 static const int k_leadeboardsEntryMode_onlyNearPlayer = 1;
 static const int k_leadeboardsEntryMode_onlyFriends = 2;
+
+static const int k_authTicketLength = 1024;
+
+
+
+
+static CSteamID currentUser;
+static uint64 currentUserIdInt;
+//static uint32 sessionTicket ;
+//static HAuthTicket sessionTicket;
+//static const void* pSessionTicket;
+static char ticketData[k_authTicketLength];
+static uint32 pcbTicket;
+//static const int k_EUserHasLicenseResultHasLicense = 0; // User has a license for specified app
+//static const int k_EUserHasLicenseResultDoesNotHaveLicense = 1;	// User does not have a license for the specified app/static const int k_EUserHasLicenseResultNoAuth = 2;	// User has not been authenticated
 
 //A simple data structure that holds on to the native 64-bit handles and maps them to regular ints.
 //This is because it is cumbersome to pass back 64-bit values over CFFI, and strictly speaking, the haxe 
@@ -255,7 +273,9 @@ public:
  		m_CallbackAchievementStored( this, &CallbackHandler::OnAchievementStored ),
 		m_CallbackGamepadTextInputDismissed( this, &CallbackHandler::OnGamepadTextInputDismissed ),
 		m_CallbackDownloadItemResult( this, &CallbackHandler::OnDownloadItem ),
-		m_CallbackItemInstalled( this, &CallbackHandler::OnItemInstalled )
+		m_CallbackItemInstalled( this, &CallbackHandler::OnItemInstalled ),
+		m_CallbackAuthSessionTicketResponse( this, &CallbackHandler::OnAuthSessionTicketResponse ),
+		m_CallbackAuthValidationTicketResponse( this, &CallbackHandler::OnAuthValidationTicketResponse )
 	{}
 
 	STEAM_CALLBACK( CallbackHandler, OnUserStatsReceived, UserStatsReceived_t, m_CallbackUserStatsReceived );
@@ -264,7 +284,10 @@ public:
 	STEAM_CALLBACK( CallbackHandler, OnGamepadTextInputDismissed, GamepadTextInputDismissed_t, m_CallbackGamepadTextInputDismissed );
 	STEAM_CALLBACK( CallbackHandler, OnDownloadItem, DownloadItemResult_t, m_CallbackDownloadItemResult );
 	STEAM_CALLBACK( CallbackHandler, OnItemInstalled, ItemInstalled_t, m_CallbackItemInstalled );
+	STEAM_CALLBACK( CallbackHandler, OnAuthSessionTicketResponse, GetAuthSessionTicketResponse_t, m_CallbackAuthSessionTicketResponse );
+	STEAM_CALLBACK( CallbackHandler, OnAuthValidationTicketResponse, ValidateAuthTicketResponse_t, m_CallbackAuthValidationTicketResponse );
 	
+
 	void FindLeaderboard(const char* name);
 	void OnLeaderboardFound( LeaderboardFindResult_t *pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, LeaderboardFindResult_t> m_callResultFindLeaderboard;
@@ -276,7 +299,7 @@ public:
 	bool DownloadScores(const std::string& leaderboardId, int numBefore, int numAfter, int listMode);
 	void OnScoreDownloaded( LeaderboardScoresDownloaded_t *pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, LeaderboardScoresDownloaded_t> m_callResultDownloadScore;
-
+	
 	void RequestGlobalStats();
 	void OnGlobalStatsReceived(GlobalStatsReceived_t* pResult, bool bIOFailure);
 	CCallResult<CallbackHandler, GlobalStatsReceived_t> m_callResultRequestGlobalStats;
@@ -318,6 +341,67 @@ public:
 	CCallResult<CallbackHandler, RemoteStorageFileShareResult_t> m_callResultFileShare;
 	
 };
+
+
+
+
+void CallbackHandler::OnAuthSessionTicketResponse(GetAuthSessionTicketResponse_t* pCallBack)
+{
+		std::ostringstream data;
+		//SendEvent(Event("call BEGIN AUTH SESION[A]", false));
+		data << "result:";//this is the ticket result (uint32)
+		data << pCallBack->m_eResult;
+		data << ",authTicket:";//result ID para saber si esta bien o no
+		data << pCallBack->m_hAuthTicket;
+	/*
+		
+	
+		data << "currentUserIdInt:";
+		data << currentUserIdInt;
+		data << ",sessionTicket:";
+		data << sessionTicket;
+		data << ",k_authTicketLength:";
+		data << k_authTicketLength;*/
+		SendEvent(Event(kEventTypeOnAuthSessionTicketResponse, pCallBack->m_eResult == k_EResultOK, data.str()));
+
+		
+		EBeginAuthSessionResult result = SteamUser()->BeginAuthSession(ticketData, pcbTicket,currentUser );
+	
+
+			std::ostringstream dataOne;
+			dataOne << "m_eResult:";
+			dataOne << pCallBack->m_eResult;
+			dataOne << ",m_hAuthTicket:";
+			dataOne << pCallBack->m_hAuthTicket;
+			dataOne << ",result:";
+			dataOne << result;
+			
+		if (result==k_EBeginAuthSessionResultOK){
+			SendEvent(Event(kEventTypeOnBeginAuthSession, true));
+		}else{
+			SendEvent(Event(kEventTypeOnBeginAuthSession, false,dataOne.str()));
+		};
+		
+		
+};
+
+void CallbackHandler::OnAuthValidationTicketResponse(ValidateAuthTicketResponse_t* pCallBack)
+{
+		std::ostringstream data;
+		//data << "m_SteamID:";
+		//data << pCallBack->m_SteamID.ConvertToUint64();
+		data << ",m_eAuthSessionResponse:";
+		data << pCallBack->m_eAuthSessionResponse;
+		//data << ",m_OwnerSteamID:";
+		//data << pCallBack->m_OwnerSteamID.ConvertToUint64();
+
+		bool success = pCallBack->m_eAuthSessionResponse==k_EAuthSessionResponseOK;
+		SendEvent(Event(kEventTypeOnAuthValidationTicketResponse, success, data.str()));
+};
+
+
+
+
 
 void CallbackHandler::OnGamepadTextInputDismissed( GamepadTextInputDismissed_t *pCallback )
 {
@@ -540,8 +624,7 @@ bool CallbackHandler::DownloadScores(const std::string& leaderboardId, int numBe
 
 void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback, bool bIOFailure)
 {
-	if (bIOFailure)
-	{
+	if (bIOFailure)	{
 		SendEvent(Event(kEventTypeOnScoreDownloaded, false));
 		return;
 	}
@@ -565,16 +648,14 @@ void CallbackHandler::OnScoreDownloaded(LeaderboardScoresDownloaded_t *pCallback
 			arrayDetails += k_leadeboardsDetailsSeparator;//[:]
 		}
 		data << toLeaderboardScore(leaderboardId.c_str(), playerName,entry.m_nScore, arrayDetails, entry.m_nGlobalRank).c_str();
+
 		data << k_leadeboardsEntrySeparator; //[;]
 	
 	}
 
-	if (numEntries>0)
-	{
+	if (numEntries>0){
 		SendEvent(Event(kEventTypeOnScoreDownloaded, true, data.str()));
-	}
-	else
-	{
+	}else{
 		SendEvent(Event(kEventTypeOnScoreDownloaded, true, toLeaderboardScore(leaderboardId.c_str(),"error", -1,"no entries", -1)));
 
 	}
@@ -830,6 +911,7 @@ void CallbackHandler::OnItemInstalled( ItemInstalled_t *pCallback )
 	SendEvent(Event(kEventTypeOnDownloadItem, true, fileIDStream.str().c_str()));
 }
 
+	
 //-----------------------------------------------------------------------------------------------------------
 static CallbackHandler* s_callbackHandler = NULL;
 
@@ -882,6 +964,8 @@ void SteamWrap_Shutdown()
 	g_eventHandler = NULL;
 	delete s_callbackHandler;
 	s_callbackHandler = NULL;
+	
+	//cancelAuthTicket()
 }
 DEFINE_PRIM(SteamWrap_Shutdown, 0);
 
@@ -1394,6 +1478,73 @@ value SteamWrap_DownloadScores(value name, value numBefore, value numAfter, valu
 }
 DEFINE_PRIM(SteamWrap_DownloadScores, 4);
 
+
+
+//****PORTING!!!!!
+
+//------------------------------------------------------------------------------------------------------
+value SteamWrap_GetAuthSessionTicket() {
+	
+
+	if(!CheckInit()) return alloc_bool(false);
+
+	
+	int length = k_authTicketLength;
+	HAuthTicket thisSessionTicket = SteamUser()->GetAuthSessionTicket(ticketData, length,&pcbTicket);
+	//HAuthTicket thisSessionTicket = SteamUser()->GetAuthSessionTicket(pSessionTicket, k_authTicketLength,pcbTicket);
+	//pSessionTicket = &thisSessionTicket;
+	if (thisSessionTicket==k_HAuthTicketInvalid){
+		return alloc_bool(false);
+	}else{
+		return alloc_bool(true);
+	};
+
+};
+
+DEFINE_PRIM(SteamWrap_GetAuthSessionTicket, 0);
+
+
+//-----------------------------------------------------------------------------------------------------------
+value SteamWrap_EndAuthSession() {
+	if(!CheckInit()) return alloc_bool(false);
+	SteamUser()->EndAuthSession(currentUser);
+	return alloc_bool(true);
+}
+DEFINE_PRIM(SteamWrap_EndAuthSession, 0);
+
+//-----------------------------------------------------------------------------------------------------------
+value SteamWrap_UserHasLicenseForApp(value appId)
+{
+	if(!CheckInit()) return alloc_int(-1);
+
+  //   EUserHasLicenseForAppResult result = SteamUser()->UserHasLicenseForApp(currentUser, val_int(appId));
+	bool hasLicense = SteamApps()->BIsSubscribedApp(val_int(appId));
+	
+	return alloc_bool(hasLicense);
+	/*std::ostringstream dataOne;
+	
+	dataOne << ",val_int(appId):";
+	dataOne << val_int(appId);
+	dataOne << ",result:";
+	dataOne << result;
+	SendEvent(Event("UserHasLicenseForApp()", true,dataOne.str()));
+
+	return alloc_int(result);*/
+}
+DEFINE_PRIM(SteamWrap_UserHasLicenseForApp, 1);
+
+//-----------------------------------------------------------------------------------------------------------
+
+value SteamWrap_IsSubscribedApp(value appId)
+{
+	if(!CheckInit()) return alloc_int(-1);
+	bool hasLicense = SteamApps()->BIsSubscribedApp(val_int(appId));
+	
+	return alloc_bool(hasLicense);
+	
+}
+DEFINE_PRIM(SteamWrap_IsSubscribedApp, 1);
+
 //-----------------------------------------------------------------------------------------------------------
 value SteamWrap_RequestGlobalStats()
 {
@@ -1434,13 +1585,17 @@ DEFINE_PRIM(SteamWrap_GetPersonaName, 0);
 //-----------------------------------------------------------------------------------------------------------
 value SteamWrap_GetSteamID()
 {
-	if(!CheckInit())
-		return alloc_string("0");
+	if(!CheckInit()) return alloc_string("0");
 	
-	CSteamID userId = SteamUser()->GetSteamID();
+	currentUser = SteamUser()->GetSteamID();
+	currentUserIdInt = currentUser.ConvertToUint64();
+	
+	
 	
 	std::ostringstream returnData;
-	returnData << userId.ConvertToUint64();
+	returnData << currentUserIdInt;
+	
+	SendEvent(Event("NEW GET STEAM ID:", true,returnData.str().c_str()));
 	
 	return alloc_string(returnData.str().c_str());
 }

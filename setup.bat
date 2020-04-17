@@ -1,6 +1,6 @@
-@echo off
-set /p STEAMPATH=Enter path to Steam SDK root (folder that contains "\redistributable_bin", no trailing slash):
-set /p HXCPP=Enter path to hxccp root (folder that contains "\include", no trailing slash):
+::@echo off
+set /p STEAMPATH=E:\Archivos de Programa\Steamworks\SDK_142\redistributable_bin
+set /p HXCPP=E:\Archivos de Programa\Haxe\v4\lib\hxcpp\4,0,8
 copy "%STEAMPATH%\public\steam\*.h" native\include\steam\
 copy "%STEAMPATH%\redistributable_bin\steam_api.dll" native\lib\win32\
 copy "%STEAMPATH%\redistributable_bin\steam_api.lib" native\lib\win32\

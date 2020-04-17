@@ -71,12 +71,13 @@ class Steam
 
 	public static var whenGamepadTextInputDismissed:String->Void;
 	public static var whenAchievementStored:String->Void;
+	public static var whenReceivedUserStats:String->Void;
 	public static var whenLeaderboardScoreDownloaded:Array<LeaderboardScore>->Void;
 	public static var whenLeaderboardScoreUploaded:LeaderboardScore->Void;
 	public static var whenTrace:String->Void;
 	public static var whenUGCItemIdReceived:String->Void;
 	public static var whenUGCItemUpdateComplete:Bool->String->Void;
-	
+	public static var whenSessionTicketResponse:String->Void;
 	public static var whenRemoteStorageFileShared:Bool->String->Void;
 	public static var whenUserSharedWorkshopFilesEnumerated:Bool->EnumerateUserPublishedFilesResult->Void;
 	public static var whenPublishedWorkshopFilesEnumerated:Bool->EnumerateWorkshopFilesResult->Void;
@@ -84,7 +85,7 @@ class Steam
 	public static var whenUserPublishedFilesEnumerated:Bool->EnumerateUserPublishedFilesResult->Void;
 	public static var whenUGCDownloaded:Bool->DownloadUGCResult->Void;
 	public static var whenPublishedFileDetailsGotten:Bool->GetPublishedFileDetailsResult->Void;
-	
+	public static var whenBeginAuthSession:String->Void;
 	public static var whenItemInstalled:String->Void;
 	public static var whenItemDownloaded:Bool->String->Void;
 	public static var whenQueryUGCRequestSent:SteamUGCQueryCompleted->Void;
@@ -97,7 +98,7 @@ class Steam
 	public static var k_leadeboardsEntryMode_Global:Int = 0;
 	public static var k_leadeboardsEntryMode_onlyNearPlayer:Int = 1;
 	public static var k_leadeboardsEntryMode_onlyFriends:Int = 2;
-	
+	//
 	
 	/**
 	 * @param appId_	Your Steam APP ID (the numbers on the end of your store page URL - store.steampowered.com/app/XYZ)
@@ -134,6 +135,11 @@ class Steam
 			SteamWrap_GetNumAchievements = cpp.Lib.load("steamwrap", "SteamWrap_GetNumAchievements", 0);
 			SteamWrap_GetAchievementName = cpp.Lib.load("steamwrap", "SteamWrap_GetAchievementName", 1);
 			SteamWrap_GetSteamID = cpp.Lib.load("steamwrap", "SteamWrap_GetSteamID", 0);
+			SteamWrap_GetAuthSessionTicket = cpp.Lib.load("steamwrap", "SteamWrap_GetAuthSessionTicket", 0);
+			//SteamWrap_BeginAuthSession = cpp.Lib.load("steamwrap", "SteamWrap_BeginAuthSession", 2);
+			SteamWrap_EndAuthSession = cpp.Lib.load("steamwrap", "SteamWrap_EndAuthSession", 0);
+			SteamWrap_IsSubscribedApp = cpp.Lib.load("steamwrap", "SteamWrap_IsSubscribedApp", 1);
+			SteamWrap_UserHasLicenseForApp = cpp.Lib.load("steamwrap", "SteamWrap_UserHasLicenseForApp", 1);
 			SteamWrap_GetPersonaName = cpp.Lib.load("steamwrap", "SteamWrap_GetPersonaName", 0);
 			SteamWrap_SetStat = cpp.Lib.load("steamwrap", "SteamWrap_SetStat", 2);
 			SteamWrap_SetStatFloat = cpp.Lib.load("steamwrap", "SteamWrap_SetStatFloat", 2);
@@ -144,15 +150,14 @@ class Steam
 			SteamWrap_RequestGlobalStats = cpp.Lib.load("steamwrap", "SteamWrap_RequestGlobalStats", 0);
 			SteamWrap_RestartAppIfNecessary = cpp.Lib.load("steamwrap", "SteamWrap_RestartAppIfNecessary", 1);
 			SteamWrap_OpenOverlay = cpp.Lib.load("steamwrap", "SteamWrap_OpenOverlay", 1);
+			
 		
 		}
 		catch (e:Dynamic) {
 			customTrace("Running non-Steam version (" + e + ")");
 			return;
 		}
-		
-		
-		
+
 		
 		// if we get this far, the dlls loaded ok and we need Steam to init.
 		// otherwise, we're trying to run the Steam version without the Steam client
@@ -162,6 +167,10 @@ class Steam
 			customTrace("Steam active");
 			SteamWrap_RequestStats();
 			SteamWrap_RequestGlobalStats();
+			
+			
+			//SteamWrap_EndAuthSession();
+			//SteamWrap_GetAuthSessionTicket();
 			
 			//initialize other API's:
 			ugc = new UGC(appId, customTrace);
@@ -305,6 +314,24 @@ class Steam
 		if (!active)
 			return "0";
 		return SteamWrap_GetSteamID();
+	}
+	
+	public static function userHasLicenseForApp(otherAppID:Int):Bool {
+		if (!active) return false;
+		
+		return SteamWrap_UserHasLicenseForApp(otherAppID);
+	}
+	
+	public static function isSubscribedApp(otherAppID:Int):Bool {
+		if (!active) return false;
+		
+		return SteamWrap_IsSubscribedApp(otherAppID);
+	}
+	
+	public static function getAuthSessionTicket():Bool {
+		if (!active) return false;
+		
+		return SteamWrap_GetAuthSessionTicket();
 	}
 	
 	public static function indicateAchievementProgress(id:String, curProgress:Int, maxProgress:Int):Bool {
@@ -456,15 +483,22 @@ class Steam
 	private static var leaderboardOps:List<LeaderboardOp>;
 	
 	private static inline function customTrace(str:String) {
-		/*#if debug
-			trace("[STEAM]" + str);
-		#end*/
+		
+		var done:Bool = true;
+		//change THIS TO ENABLE TRACES.
 		
 		
-		if (whenTrace != null)
-			whenTrace(str);
-		else
-			trace(str);
+		//#if debug
+			//trace("[STEAM]" + str);
+			//done = true;
+		//#end
+		
+		if (!done){
+			if (whenTrace != null)
+				whenTrace(str);
+			else
+				trace(str);
+		};
 	}
 	
 	private static function processNextLeaderboardOp() {
@@ -502,8 +536,9 @@ class Steam
 		var success:Bool = (Std.int(Reflect.field(e, "success")) != 0);
 		var data:String = Std.string(Reflect.field(e, "data"));
 		
-		customTrace(" " + type + (success ? " SUCCESS" : " FAIL") + " (" + data + "):"+data);
 		
+		customTrace("ON EVENT: " + type + (success ? " SUCCESS" : " FAIL") + ":"+data);
+	
 		
 		switch (type) {
 			case "UserStatsReceived":
@@ -525,6 +560,18 @@ class Steam
 						whenGamepadTextInputDismissed(null);
 					}
 				}
+			
+			case "AuthSessionTicketResponse":
+			
+				//customTrace(">>>>>>HERE I CAN BEGIN AUTH TICKET:" + data);
+				if (whenSessionTicketResponse != null) whenSessionTicketResponse(data);
+			case "OnAuthValidationTicketResponse":
+				if (whenBeginAuthSession != null) whenBeginAuthSession(data);
+			
+			case "OnBeginAuthSession":
+			
+				customTrace(">>>>>>AUTH TICKET BEGAN:" + data);
+				//if (whenBeginAuthSession != null) whenBeginAuthSession(data);
 			
 			case "GlobalStatsReceived":
 				haveGlobalStats = success;
@@ -619,6 +666,7 @@ class Steam
 		}
 	}
 	
+	
 	private static var SteamWrap_Init:Dynamic;
 	private static var SteamWrap_Shutdown:Dynamic;
 	private static var SteamWrap_RunCallbacks:Dynamic;
@@ -635,6 +683,9 @@ class Steam
 	private static var SteamWrap_GetNumAchievements:Void->Int;
 	private static var SteamWrap_GetAchievementName:Int->String;
 	private static var SteamWrap_GetSteamID:Void->String;
+	private static var SteamWrap_IsSubscribedApp:Int->Bool;
+
+	
 	private static var SteamWrap_GetPersonaName:Void->String;
 	private static var SteamWrap_ClearAchievement:Dynamic;
 	private static var SteamWrap_IndicateAchievementProgress:Dynamic;
@@ -651,6 +702,15 @@ class Steam
 	private static var SteamWrap_IsSteamRunning:Dynamic;
 	private static var SteamWrap_GetCurrentGameLanguage:Dynamic;
 	private static var SteamWrap_OpenOverlay:Dynamic;
+
+	
+	
+	//implemented but not necessary
+	private static var SteamWrap_GetAuthSessionTicket:Void->Bool;
+	private static var SteamWrap_BeginAuthSession:String->Int->Bool;//steam ID , tickedN , ticket Size
+	private static var SteamWrap_UserHasLicenseForApp:Int->Bool;//dont use
+	private static var SteamWrap_EndAuthSession:Void->Bool;
+	
 }
 
 class LeaderboardScore {

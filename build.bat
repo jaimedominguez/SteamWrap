@@ -35,3 +35,5 @@ haxe -cp .. Test.hx -main Test -cpp ..\temp64\hx -D HXCPP_M64=1
 cd ..
 
 copy temp64\hx\Test.exe ndll\Windows64
+
+pause
